@@ -30,8 +30,8 @@ PLAYREADY_SYSTEM_ID = '9a04f079-9840-4286-ab92-e65be0885f95'
 CLEAR_KEY_AES_128_SYSTEM_ID = '3ea8778f-7742-4bf9-b18b-e834b2acbd47'
 
 # settings for HLS
-HLS_AES_128_KEY_FORMAT = ''  # 'identity'
-HLS_AES_128_KEY_FORMAT_VERSIONS = '1'  # '1'
+HLS_AES_128_KEY_FORMAT = ''
+HLS_AES_128_KEY_FORMAT_VERSIONS = ''
 HLS_SAMPLE_AES_KEY_FORMAT = 'com.apple.streamingkeydelivery'
 HLS_SAMPLE_AES_KEY_FORMAT_VERSIONS = '1'
 # speke v2.0 settings for fairplay drm
@@ -176,7 +176,7 @@ class ServerResponseBuilder:
                 encoded_hmac_key = public_key.encrypt(self.hmac_key, asym_padder)
                 # insert document key
                 document_key_leaf = element_tree.SubElement(delivery_data, "{urn:dashif:org:cpix}DocumentKey")
-                document_key_leaf.set("Algorithm", "http://www.w3.org/2001/04/xmlenc#aes256-cbc")
+                document_key_leaf.set("Algorithm", "http://www.w3.org/2001/04/xmlenc#aes128-ctr")
                 data_leaf = element_tree.SubElement(document_key_leaf, "{urn:dashif:org:cpix}Data")
                 secret_leaf = element_tree.SubElement(data_leaf, "{urn:ietf:params:xml:ns:keyprov:pskc}Secret")
                 self.insert_encrypted_value(secret_leaf, "http://www.w3.org/2001/04/xmlenc#rsa-oaep-mgf1p", base64.b64encode(encoded_document_key).decode('utf-8'))
@@ -212,12 +212,11 @@ class ServerResponseBuilder:
             # update the encrypted response
             if encrypted_response_recipients:
                 # store the key encrypted
-                padder = padding.PKCS7(algorithms.AES.block_size).padder()
-                padded_data = padder.update(key_bytes) + padder.finalize()
                 random_iv = secrets.token_bytes(RANDOM_IV_SIZE)
-                cipher = Cipher(algorithms.AES(self.document_key), modes.CBC(random_iv), backend=backend)
+                cipher = Cipher(algorithms.AES(self.document_key), modes.CTR(random_iv), backend=default_backend())
                 encryptor = cipher.encryptor()
-                encrypted_data = encryptor.update(padded_data) + encryptor.finalize()
+                # パディング関連の処理を削除し、直接key_bytesを使用
+                encrypted_data = encryptor.update(key_bytes) + encryptor.finalize()
                 cipher_data = random_iv + encrypted_data
                 encrypted_string = base64.b64encode(cipher_data).decode('utf-8')
                 self.insert_encrypted_value(secret, "http://www.w3.org/2001/04/xmlenc#aes256-cbc", encrypted_string)
@@ -359,12 +358,9 @@ class ServerResponseBuilderV2(ServerResponseBuilder):
     def clearkey_aes_128_hls_signaling_data(self, ext_x_key_uri):
         method = "AES-128"
         uri = ext_x_key_uri
-        key_format = HLS_AES_128_KEY_FORMAT
-        key_format_versions = HLS_AES_128_KEY_FORMAT_VERSIONS
 
-        # need to fix
-        ext_x_session_key = '#EXT-X-SESSION-KEY:METHOD={},URI="{}",KEYFORMAT="{}",KEYFORMATVERSIONS="{}"'.format(method, uri, key_format, key_format_versions)
-        ext_x_key = '#EXT-X-KEY:METHOD={},URI="{}",KEYFORMAT="{}",KEYFORMATVERSIONS="{}"'.format(method, uri, key_format, key_format_versions)
+        ext_x_session_key = '#EXT-X-SESSION-KEY:METHOD={},URI="{}"'.format(method, uri)
+        ext_x_key = '#EXT-X-KEY:METHOD={},URI="{}"'.format(method, uri)
 
         encoded_session_key = base64.b64encode(ext_x_session_key.encode('utf-8')).decode('utf-8')
         encoded_key = base64.b64encode(ext_x_key.encode('utf-8')).decode('utf-8')
